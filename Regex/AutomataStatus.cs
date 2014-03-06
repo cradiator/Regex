@@ -32,9 +32,20 @@ namespace Regex
             list.Add(targetStatus);
         }
 
+        public ICollection<AutomataStatus> GetNextStatus(char cInputAscii)
+        {
+            if(m_mapInputTargetStatus.ContainsKey(cInputAscii))
+            {
+                return m_mapInputTargetStatus[cInputAscii];
+            }
+
+            return null;
+        }
+
         // Dictionary<input, target_status>
         Dictionary<char, List<AutomataStatus>> m_mapInputTargetStatus;
         private int m_iStatusNumber;
+
         private static int s_iCurrentStatusNumber = 0;
     }
 }

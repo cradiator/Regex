@@ -10,6 +10,9 @@ namespace Regex
     {
         static void Main(string[] args)
         {
+            NFATranslator t = new NFATranslator("a*b*ab");
+            NFA nfa = t.GetNFA();
+            bool ret = nfa.Match("aaaabbbab");
         }
     }
 }
