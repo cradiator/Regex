@@ -161,211 +161,252 @@ namespace Regex
         {
             regex_ = regex;
             current_index_ = 0;
-            need_concat_ = false;
+            nfa_stack_ = new Stack<NFA>();
+            result_nfa_ = null;
         }
 
         public NFA GetNFA()
         {
-            Stack<NFA> operand_stack = new Stack<NFA>();
-            Stack<char> operator_stack = new Stack<char>();
+            if (result_nfa_ != null)
+                return result_nfa_;
 
-            bool success = false;
-            char c = GetNextChar();
-            while(c != EOF)
-            {
-                if (c == '*')
-                {
-                    operator_stack.Push(c);
-                    success = EvalTop(operand_stack, operator_stack);
-                }
-                else if (c == '|')
-                {
-                    if (operator_stack.Count == 0)
-                    {
-                        operator_stack.Push(c);
-                        success = true;
-                    }
-                    else
-                    {
-                        success = true;
-                        while(success && operator_stack.Count != 0)
-                        {
-                            success = EvalTop(operand_stack, operator_stack);
-                        }
-                        operator_stack.Push(c);
-                    }
-                }
-                else if (c == CONCAT_MARK)
-                {
-                    if (operator_stack.Count == 0 || operator_stack.Peek() == '|')
-                    {
-                        operator_stack.Push(c);
-                        success = true;
-                    }
-                    else
-                    {
-                        success = true;
-                        while (success && operator_stack.Count != 0)
-                        {
-                            success = EvalTop(operand_stack, operator_stack);
-                        }
-                        operator_stack.Push(c);
-                    }
-                }
-                else
-                {
-                    success = EvalOperand(c, operand_stack);
-                }
-
-                if (success == false)
-                    break;
-
-                c = GetNextChar();
-            }
-
-            while(success && operator_stack.Count != 0)
-            {
-                success = EvalTop(operand_stack, operator_stack);
-            }
-
-            if (success && operand_stack.Count == 1)
-            {
-                return operand_stack.Pop();
-            }
-            else
+            nfa_stack_.Clear();
+            if (!EvalS() || nfa_stack_.Count != 1)
             {
                 return null;
             }
+
+            result_nfa_ = nfa_stack_.Pop();
+            return result_nfa_;
         }
 
-        private bool EvalTop(Stack<NFA> operand_stack, Stack<char> operator_stack)
+        // S->AS'
+        private bool EvalS()
         {
-            if (operand_stack.Count == 0 || operator_stack.Count == 0)
-                return false;
-
             bool success = false;
-            char op = operator_stack.Peek();
-            if (op == '|')
-            {
-                success = EvalUnion(operand_stack);
-            }
-            else if (op == '*')
-            {
-                success = EvalStar(operand_stack);
-            }
-            else if (op == CONCAT_MARK)
-            {
-                success = EvalConcat(operand_stack);
-            }
-            else
-            {
-                success = false;
-            }
+            int saved_index = current_index_;
 
-            if (success)
+            do
             {
-                operator_stack.Pop();
+                if (EvalA() == false)
+                    break;
+
+                if (EvalSp() == false)
+                    break;
+
+                success = true;
+            } while (false);
+
+            if (!success)
+            {
+                current_index_ = saved_index;
             }
 
             return success;
         }
 
-        private bool EvalOperand(char input, Stack<NFA> operand_stack)
+        // S'->|A{unionNFA}S'|epsilon
+        private bool EvalSp()
         {
-            NFA nfa = NFA.CreateFromInput(input);
-            if (nfa == null)
-                return false;
+            bool success = false;
+            int saved_index = current_index_;
 
-            operand_stack.Push(nfa);
-            return true;
-        }
-
-        private bool EvalConcat(Stack<NFA> operand_stack)
-        {
-            if (operand_stack.Count < 2)
+            // S'->|A{unionNFA}S'
+            do
             {
-                return false;
-            }
+                if (regex_.Length <= current_index_)
+                    break;
 
-            NFA op2 = operand_stack.Pop();
-            NFA op1 = operand_stack.Pop();
-            NFA result = NFA.ConcatNFA(op1, op2);
-            operand_stack.Push(result);
+                if (regex_[current_index_] != '|')
+                    break;
 
-            return true;
-        }
-
-        private bool EvalUnion(Stack<NFA> operand_stack)
-        {
-            if (operand_stack.Count < 2)
-            {
-                return false;
-            }
-
-            NFA op2 = operand_stack.Pop();
-            NFA op1 = operand_stack.Pop();
-            NFA result = NFA.UnionNFA(op1, op2);
-            operand_stack.Push(result);
-
-            return true;
-        }
-
-        private bool EvalStar(Stack<NFA> operand_stack)
-        {
-            if (operand_stack.Count < 1)
-            {
-                return false;
-            }
-
-            NFA op = operand_stack.Pop();
-            NFA result = NFA.StarNFA(op);
-            operand_stack.Push(result);
-
-            return true;
-        }
-
-        private char GetNextChar()
-        {
-            char[] SPECIAL_MARK = {'*', '|'};
-
-            if (current_index_ >= regex_.Length)
-            {
-                return EOF;
-            }
-
-            char current_char = regex_[current_index_];
-
-            if (current_char == '|')
-            {
+                // S'->|A{unionNFA}S'
                 current_index_++;
-                need_concat_ = false;
-                return current_char;
-            }
-            else if (current_char == '*')
+                if (!EvalA())
+                    break;
+
+                if (nfa_stack_.Count < 2)
+                    break;
+                NFA op2 = nfa_stack_.Pop();
+                NFA op1 = nfa_stack_.Pop();
+                NFA result = NFA.UnionNFA(op1, op2);
+                if (result == null)
+                    return false;
+                nfa_stack_.Push(result);
+
+                if (EvalSp() == false)
+                    break;
+                
+                success = true;
+            } while (false);
+
+            // not S'->|A{unionNFA}S'
+            // Use S'->epsilon
+            if (!success)
             {
+                current_index_ = saved_index;
+                success = true;
+            }
+
+            return success;
+        }
+
+        // A->BA'
+        private bool EvalA()
+        {
+            bool success = false;
+            int saved_index = current_index_;
+
+            do
+            {
+                if (EvalB() == false)
+                    break;
+
+                if (EvalAp() == false)
+                    break;
+
+                success = true;
+            } while (false);
+
+            if (!success)
+            {
+                current_index_ = saved_index;
+            }
+
+            return success;
+        }
+
+        // A'->B{concatNFA}A' | epsilon
+        private bool EvalAp()
+        {
+            bool success = false;
+            int saved_index = current_index_;
+
+            // A'->B{concatNFA}A'
+            do
+            {
+                if (!EvalB())
+                    break;
+
+                if (nfa_stack_.Count < 2)
+                    break;
+                NFA op2 = nfa_stack_.Pop();
+                NFA op1 = nfa_stack_.Pop();
+                NFA result = NFA.ConcatNFA(op1, op2);
+                if (result == null)
+                    return false;
+                nfa_stack_.Push(result);
+
+                if (!EvalAp())
+                    break;
+
+                success = true;
+            } while (false);
+
+            // not A'->B{concatNFA}A'
+            // Use A'->epsilon
+            if (!success)
+            {
+                current_index_ = saved_index;
+                success = true;
+            }
+
+            return success;
+        }
+
+        // B->C*{starNFA}|C
+        private bool EvalB()
+        {
+            int saved_index = current_index_;
+            if (!EvalC())
+            {
+                current_index_ = saved_index;
+                return false;
+            }
+
+            bool success = false;
+            saved_index = current_index_;
+            do
+            {
+                if (regex_.Length <= current_index_)
+                    break;
+
+                if (regex_[current_index_] != '*')
+                    break;
+
+                if (nfa_stack_.Count < 1)
+                    break;
+
+                NFA op = nfa_stack_.Pop();
+                NFA result = NFA.StarNFA(op);
+                if (result == null)
+                    return false;
+                nfa_stack_.Push(result);
+
                 current_index_++;
-                need_concat_ = true;
-                return current_char;
-            }
-            else
+                success = true;
+            } while (false);
+
+            if (!success)
             {
-                if (need_concat_)
+                current_index_ = saved_index;
+            }
+
+            return true;
+        }
+
+        // C->(S)|others{createInput}
+        private bool EvalC()
+        {
+            int saved_index = current_index_;
+
+            if (regex_.Length <= current_index_)
+                return false;
+
+            // C->(S)
+            if (regex_[current_index_++] == '(' && 
+                EvalS() &&
+                current_index_ < regex_.Length &&
+                regex_[current_index_++] == ')')
+            {
+                return true;
+            }
+
+            // C->others{createInput}
+            char[] SPECIAL_MARK = { '(', ')', '*', '|', '\\' };
+            current_index_ = saved_index;
+            if (regex_[current_index_] == '\\')
+            {
+                if (regex_.Length <= current_index_ + 1)
+                    return false;
+
+                if (!SPECIAL_MARK.Contains(regex_[current_index_+1]))
                 {
-                    need_concat_ = false;
-                    return CONCAT_MARK;
+                    return false;
                 }
 
                 current_index_++;
-                need_concat_ = true;
-                return current_char;
             }
+            else if (SPECIAL_MARK.Contains(regex_[current_index_]))
+            {
+                return false;
+            }
+
+            NFA result = NFA.CreateFromInput(regex_[current_index_]);
+            if (result == null)
+            {
+                current_index_ = saved_index;
+                return false;
+            }
+            nfa_stack_.Push(result);
+            current_index_++;
+
+            return true;
         }
 
         private String regex_;
         private int current_index_;
-        private bool need_concat_;
-
-        private static char CONCAT_MARK = (char)1;
-        private static char EOF = (char)255;
+        Stack<NFA> nfa_stack_;
+        NFA result_nfa_;
     }
 }

@@ -1,0 +1,11 @@
+S->S|A{unionNFA} | A
+A->AB{concatNFA} | B
+B->C*{startNFA}  | C
+C->(S)|others{createNFA}
+
+S->AS'
+S'->|A{unionNFA}S'|epsilon
+A->BA'
+A'->B{concatNFA}A'|epsilon
+B->C*{starNFA}|C
+C->(S)|others{createInput}
