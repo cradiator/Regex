@@ -67,6 +67,20 @@ namespace Regex
             return nfa;
         }
 
+        public static NFA PlusNFA(NFA op)
+        {
+            AutomataStatus start = new AutomataStatus();
+            AutomataStatus end = new AutomataStatus();
+            start.AddTransition((char)0, op.startStatus_);
+            op.endStatus_.AddTransition((char)0, end);
+            op.endStatus_.AddTransition((char)0, op.startStatus_);
+
+            NFA nfa = new NFA();
+            nfa.startStatus_ = start;
+            nfa.endStatus_ = end;
+            return nfa;
+        }
+
         private NFA()
         {
             startStatus_ = null;
@@ -314,7 +328,7 @@ namespace Regex
             return success;
         }
 
-        // B->C*{starNFA}|C
+        // B->C*{starNFA}|C+{plusNFA}|C
         private bool EvalB()
         {
             int saved_index = current_index_;
@@ -331,14 +345,18 @@ namespace Regex
                 if (regex_.Length <= current_index_)
                     break;
 
-                if (regex_[current_index_] != '*')
+                if (regex_[current_index_] != '*' && regex_[current_index_] != '+')
                     break;
 
                 if (nfa_stack_.Count < 1)
                     break;
 
                 NFA op = nfa_stack_.Pop();
-                NFA result = NFA.StarNFA(op);
+                NFA result = null;
+                if (regex_[current_index_] == '*')
+                    result = NFA.StarNFA(op);
+                else
+                    result = NFA.PlusNFA(op);
                 if (result == null)
                     return false;
                 nfa_stack_.Push(result);
@@ -373,7 +391,7 @@ namespace Regex
             }
 
             // C->others{createInput}
-            char[] SPECIAL_MARK = { '(', ')', '*', '|', '\\' };
+            char[] SPECIAL_MARK = { '(', ')', '*', '|', '\\', '+' };
             current_index_ = saved_index;
             if (regex_[current_index_] == '\\')
             {
